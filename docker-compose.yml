@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:17  #-- specify the version of the image [specify version:latest if needed]
+    restart: on-failure  #-- restart the container if it fails
+    container_name: ${DOCKER_CONTAINER}  #-- name of the container
+    env_file:
+      - .env  #-- environment variables file
+    environment:
+      - POSTGRES_DB=${POSTGRES_SCHEMA} #-- database name
+      - POSTGRES_USER=${POSTGRES_USER} #-- database user
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD} #-- database password
+    ports:
+      # port mapping
+      - "${HOST_PORT}:${CONTAINER_PORT}"
+    volumes:
+      - ./:/bootcamp/ # mount the current directory to the /bootcamp directory in the container
+      - ./data.dump:/docker-entrypoint-initdb.d/data.dump # mount the data.dump file to the /docker-entrypoint-initdb.d/data.dump directory in the container
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh # mount the init-db.sh file to the /docker-entrypoint-initdb.d/init-db.sh directory in the container
+      - postgres-data:/var/lib/postgresql/data # mount the postgres-data volume to the /var/lib/postgresql/data directory in the container
+
+volumes:
+  postgres-data:   # -- create a volume named postgres-data
+
+
+
