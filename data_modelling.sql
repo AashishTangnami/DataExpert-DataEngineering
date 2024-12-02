@@ -72,3 +72,21 @@ WITH yesterday AS (
  FROM 
  today t FULL OUTER JOIN yesterday y 
  ON t.player_name = y.player_name
+
+-------------- Querying the players table ----------------------
+ WITH
+	UNNESTED AS (
+		SELECT
+			PLAYER_NAME,
+			UNNEST(SEASON_STATS)::SEASON_STATS AS SEASON_STATS
+		FROM
+			PLAYERS
+		WHERE
+			CURRENT_SEASON = 1998
+			AND PLAYER_NAME = 'Micheal Jordan'
+	)
+SELECT
+	PLAYER_NAME,
+	(SEASON_STATS::SEASON_STATS).*
+FROM
+	UNNESTED
