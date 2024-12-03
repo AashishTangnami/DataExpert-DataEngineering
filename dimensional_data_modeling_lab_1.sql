@@ -1,4 +1,5 @@
- -- Lecture Lab: 1
+ -- Lecture Lab: 1 b- Cumulative Data Tables
+
 SELECT
 	*
 FROM
@@ -90,8 +91,7 @@ FROM
 	FULL OUTER JOIN YESTERDAY Y ON T.PLAYER_NAME = Y.PLAYER_NAME
 
 
-
-
+---- ------ 
 
 WITH
 	UNNESTED AS (
