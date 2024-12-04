@@ -34,7 +34,7 @@ CREATE TABLE PLAYERS (
 
 
 
---- Inserting data into the players table.
+--- Inserting data into the players table ----------------
 INSERT INTO
 	PLAYERS
 WITH
@@ -93,28 +93,47 @@ FROM
 
 ---- ------ 
 
+-- WITH
+-- 	UNNESTED AS (
+-- 		SELECT
+-- 			PLAYER_NAME,
+-- 			UNNEST(SEASON_STATS)::SEASON_STATS AS SEASON_STATS --- season component un nested
+-- 		FROM
+-- 			PLAYERS
+-- 		WHERE
+-- 			CURRENT_SEASON = 1998
+-- 			AND PLAYER_NAME = 'Micheal Jordan'
+-- 	)
+-- SELECT
+-- 	PLAYER_NAME,
+-- 	(SEASON_STATS::SEASON_STATS).*
+-- FROM
+-- 	UNNESTED
+
+--- No need for ::SEASON_STATS casting as postgresql UNNEST already inferres the type of the column array.
 WITH
-	UNNESTED AS (
-		SELECT
-			PLAYER_NAME,
-			UNNEST(SEASON_STATS)::SEASON_STATS AS SEASON_STATS --- season component un nested
-		FROM
-			PLAYERS
-		WHERE
-			CURRENT_SEASON = 1998
-			AND PLAYER_NAME = 'Micheal Jordan'
-	)
+    UNNESTED AS (
+        SELECT
+            PLAYER_NAME,
+            UNNEST(SEASON_STATS) AS SEASON_STATS
+        FROM
+            PLAYERS
+        WHERE
+            CURRENT_SEASON = 2000
+            AND PLAYER_NAME = 'Michael Jordan'
+    )
 SELECT
-	PLAYER_NAME,
-	(SEASON_STATS::SEASON_STATS).*
+    PLAYER_NAME,
+    (SEASON_STATS).*
 FROM
-	UNNESTED
+    UNNESTED;
 
-
+--- -----------------------
 SELECT * FROM PLAYERS
 WHERE CURRENT_SEASON = 2000
 AND PLAYER_NAME = 'Michael Jordan';
 
+--------------------------------
 
 SELECT
 	PLAYER_NAME,
