@@ -175,6 +175,7 @@ SELECT
 	SCORING_CLASS,
 	IS_ACTIVE,
     -- LAG() function is a window function that "Looks Back" at the previous row.
+        -- It is used to retrieve the value of the previous row in the same result set, without the need for a self-join or subquery.
     -- Thus it retrieves the scroing_class from the previous season.
 	LAG(SCORING_CLASS, 1) OVER (
 
@@ -195,3 +196,72 @@ SELECT
 	) AS PREVIOUS_IS_ACTIVE
 FROM
 	PLAYERS
+
+
+
+--------------- SCD2 TABLE ----------------
+WITH
+	WITH_PREVIOUS AS (
+		SELECT
+			PLAYER_NAME,
+			CURRENT_SEASON,
+			SCORING_CLASS,
+			IS_ACTIVE,
+			-- LAG() function is a window function that "Looks Back" at the previous row.
+			-- Thus it retrieves the scroing_class from the previous season.
+			LAG(SCORING_CLASS, 1) OVER (
+				-- PARTITION BY: It is used to divide the player_name into partitions. 
+				-- (same 'names' are grouped together and ordered by current_season)
+				PARTITION BY
+					PLAYER_NAME
+				ORDER BY
+					CURRENT_SEASON
+			) AS PREVIOUS_SCORING_CLASS,
+			-- It retrieves the is_active from the previous season.
+			LAG(IS_ACTIVE, 1) OVER (
+				-- (same 'names' are grouped together and ordered by current_season)
+				PARTITION BY
+					PLAYER_NAME
+				ORDER BY
+					CURRENT_SEASON
+			) AS PREVIOUS_IS_ACTIVE
+		FROM
+            PLAYERS
+    ),
+    WITH_INDICATOR AS (
+        SELECT
+            *,
+            CASE
+                WHEN SCORING_CLASS <> PREVIOUS_SCORING_CLASS THEN 1
+                WHEN IS_ACTIVE <> PREVIOUS_IS_ACTIVE THEN 1
+                ELSE 0
+            END AS CHANGE_INDICATOR
+        FROM
+            WITH_PREVIOUS
+    ),
+    WITH_STREAKS AS (
+        SELECT
+            *,
+            SUM(CHANGE_INDICATOR) OVER (
+                PARTITION BY PLAYER_NAME
+                ORDER BY CURRENT_SEASON
+            ) AS STREAK_IDENTIFIER
+        FROM
+            WITH_INDICATOR
+    )
+SELECT
+	PLAYER_NAME,
+	STREAK_IDENTIFIER,
+	IS_ACTIVE,
+	SCORING_CLASS,
+	MIN(CURRENT_SEASON) AS START_SEASON,
+	MAX(CURRENT_SEASON) AS END_SEASON
+FROM
+	WITH_STREAKS
+WHERE
+	STREAK_IDENTIFIER > 1
+GROUP BY
+	PLAYER_NAME,
+	STREAK_IDENTIFIER,
+	IS_ACTIVE,
+	SCORING_CLASS
