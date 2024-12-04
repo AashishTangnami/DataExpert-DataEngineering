@@ -101,13 +101,43 @@ CREATE TABLE PLAYERS (
 
 
 
---- CREATING TYPE 2 TABLE 
+--- CREATING TYPE 2 TABLE ---
+--- SLOWLY CHANGING DIMENSION TYPE 2 TABLE---
 CREATE TABLE PLAYERS_SCD (
 	PLAYER_NAME TEXT,
 	SCORING_CLASS SCORING_CLASS,
 	IS_ACTIVE BOOLEAN,
 	CURRENT_SEASON INTEGER,
-	START_SEASON INTEGER,
-	END_SEASON INTERGER,
+	START_SEASON INTEGER,  -- start_date
+	END_SEASON INTERGER, -- end_date
 	PRIMARY KEY (PLAYER_NAME, CURRENT_SEASON)
 )
+
+
+
+SELECT
+	PLAYER_NAME,
+	CURRENT_SEASON,
+	SCORING_CLASS,
+	IS_ACTIVE,
+    -- LAG() function is a window function that "Looks Back" at the previous row.
+    -- Thus it retrieves the scroing_class from the previous season.
+	LAG(SCORING_CLASS, 1) OVER (
+
+        -- PARTITION BY: It is used to divide the player_name into partitions. 
+        -- (same 'names' are grouped together and ordered by current_season)
+		PARTITION BY
+			PLAYER_NAME
+		ORDER BY
+			CURRENT_SEASON
+	) AS PREVIOUS_SCORING_CLASS,
+    -- It retrieves the is_active from the previous season.
+	LAG(IS_ACTIVE, 1) OVER (
+        -- (same 'names' are grouped together and ordered by current_season)
+		PARTITION BY
+			PLAYER_NAME
+		ORDER BY
+			CURRENT_SEASON
+	) AS PREVIOUS_IS_ACTIVE
+FROM
+	PLAYERS
