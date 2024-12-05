@@ -238,8 +238,8 @@ CREATE TABLE PLAYERS_SCD (
 	IS_ACTIVE BOOLEAN,
 	CURRENT_SEASON INTEGER,
 	START_SEASON INTEGER,  -- start_date
-	END_SEASON INTEGER -- end_date
-	PRIMARY KEY (PLAYER_NAME, CURRENT_SEASON)
+	END_SEASON INTEGER, -- end_date
+	PRIMARY KEY (PLAYER_NAME, START_SEASON)
 )
 
 
@@ -326,9 +326,8 @@ WITH
     )
 SELECT
 	PLAYER_NAME,
-	STREAK_IDENTIFIER,
-	IS_ACTIVE,
 	SCORING_CLASS,
+    IS_ACTIVE,
 	MIN(CURRENT_SEASON) AS START_SEASON,
 	MAX(CURRENT_SEASON) AS END_SEASON
 FROM
@@ -340,3 +339,207 @@ GROUP BY
 	STREAK_IDENTIFIER,
 	IS_ACTIVE,
 	SCORING_CLASS
+
+
+
+
+
+----------- SCD TABLE - FILTER AND INSERT INTO PLAYERS_SCD TABLE DATA------------
+
+INSERT INTO PLAYERS_SCD
+WITH
+	WITH_PREVIOUS AS (
+		SELECT
+			PLAYER_NAME,
+			CURRENT_SEASON,
+			SCORING_CLASS,
+			IS_ACTIVE,
+			-- LAG() function is a window function that "Looks Back" at the previous row.
+			-- Thus it retrieves the scroing_class from the previous season.
+			LAG(SCORING_CLASS, 1) OVER (
+				-- PARTITION BY: It is used to divide the player_name into partitions. 
+				-- (same 'names' are grouped together and ordered by current_season)
+				PARTITION BY
+					PLAYER_NAME
+				ORDER BY
+					CURRENT_SEASON
+			) AS PREVIOUS_SCORING_CLASS,
+			-- It retrieves the is_active from the previous season.
+			LAG(IS_ACTIVE, 1) OVER (
+				-- (same 'names' are grouped together and ordered by current_season)
+				PARTITION BY
+					PLAYER_NAME
+				ORDER BY
+					CURRENT_SEASON
+			) AS PREVIOUS_IS_ACTIVE
+		FROM
+            PLAYERS
+		WHERE CURRENT_SEASON <= 2021
+    ),
+    WITH_INDICATOR AS (
+        SELECT
+            *,
+            CASE
+                WHEN SCORING_CLASS <> PREVIOUS_SCORING_CLASS THEN 1
+                WHEN IS_ACTIVE <> PREVIOUS_IS_ACTIVE THEN 1
+                ELSE 0
+            END AS CHANGE_INDICATOR
+        FROM
+            WITH_PREVIOUS
+    ),
+    WITH_STREAKS AS (
+        SELECT
+            *,
+            SUM(CHANGE_INDICATOR) OVER (
+                PARTITION BY PLAYER_NAME
+                ORDER BY CURRENT_SEASON
+            ) AS STREAK_IDENTIFIER
+        FROM
+            WITH_INDICATOR
+    )
+SELECT
+	PLAYER_NAME,
+	IS_ACTIVE,
+	SCORING_CLASS,
+	MIN(CURRENT_SEASON) AS START_SEASON,
+	MAX(CURRENT_SEASON) AS END_SEASON,
+	2021 AS CURRENT_SEASON
+FROM
+	WITH_STREAKS
+GROUP BY
+	PLAYER_NAME,
+	STREAK_IDENTIFIER,
+	IS_ACTIVE,
+	SCORING_CLASS
+
+----- CREATING TYPE OF SCD TYPE -----
+
+CREATE TYPE SCD_TYPE AS (
+    SCORING_CLASS SCORING_CLASS,
+	IS_ACTIVE BOOLEAN,
+	START_SEASON INTEGER,
+	END_SEASON INTEGER
+)
+
+-------- SCD TABLE  TYPE TWO --------
+-- Show filters for:
+    -- Last season's records
+    -- Historical records (expired)
+    -- Current season records
+    -- Unchanged records
+    -- New records
+    
+WITH
+	LAST_SEASON_SCD AS (
+		SELECT
+			*
+		FROM
+			PLAYERS_SCD
+		WHERE
+			CURRENT_SEASON = 2021
+			AND END_SEASON = 2021
+	),
+	HISTORICAL_SCD AS (
+		SELECT
+			PLAYER_NAME,
+			SCORING_CLASS,
+			IS_ACTIVE,
+			START_SEASON,
+			END_SEASON
+		FROM
+			PLAYERS_SCD
+		WHERE
+			CURRENT_SEASON = 2021
+			AND END_SEASON < 2021
+	),
+	THIS_SEASON_DATA AS (
+		SELECT
+			*
+		FROM
+			PLAYERS
+		WHERE
+			CURRENT_SEASON = 2022
+	),
+	UNCHANGED_RECORDS AS (
+		SELECT
+			TS.PLAYER_NAME,
+			TS.SCORING_CLASS,
+			TS.IS_ACTIVE,
+			LS.START_SEASON,
+			TS.CURRENT_SEASON AS END_SEASON
+		FROM
+			THIS_SEASON_DATA TS
+			JOIN LAST_SEASON_SCD LS ON TS.PLAYER_NAME = LS.PLAYER_NAME
+		WHERE
+			TS.SCORING_CLASS = LS.SCORING_CLASS
+			AND TS.IS_ACTIVE = LS.IS_ACTIVE
+	),
+	CHANGED_RECORDS AS (
+		SELECT
+			TS.PLAYER_NAME,
+			UNNEST(
+				ARRAY[
+					ROW (
+						LS.SCORING_CLASS,
+						LS.IS_ACTIVE,
+						LS.START_SEASON,
+						LS.END_SEASON
+					)::SCD_TYPE,
+					ROW (
+						TS.SCORING_CLASS,
+						TS.IS_ACTIVE,
+						TS.CURRENT_SEASON,
+						TS.CURRENT_SEASON
+					)::SCD_TYPE
+				]
+			) AS RECORDS
+		FROM
+			THIS_SEASON_DATA TS
+			LEFT JOIN LAST_SEASON_SCD LS ON TS.PLAYER_NAME = LS.PLAYER_NAME
+		WHERE
+			(TS.SCORING_CLASS <> LS.SCORING_CLASS)
+			OR (TS.IS_ACTIVE <> LS.IS_ACTIVE)
+	),
+	UNNESTED_CHANGED_RECORDS AS (
+		SELECT
+			PLAYER_NAME,
+			(RECORDS::SCD_TYPE).SCORING_CLASS,
+			(RECORDS::SCD_TYPE).IS_ACTIVE,
+			(RECORDS::SCD_TYPE).START_SEASON,
+			(RECORDS::SCD_TYPE).END_SEASON
+		FROM
+			CHANGED_RECORDS
+	),
+	NEW_RECORDS AS (
+		 SELECT
+            ts.player_name,
+                ts.scoring_class,
+                ts.is_active,
+                ts.current_season AS start_season,
+                ts.current_season AS end_season
+         FROM this_season_data ts
+         LEFT JOIN last_season_scd ls
+             ON ts.player_name = ls.player_name
+         WHERE ls.player_name IS NULL
+	)
+SELECT
+	*, 2022 AS CURRENT_SEASON
+FROM(
+SELECT * FROM 
+	HISTORICAL_SCD
+UNION ALL
+SELECT
+	*
+FROM
+	UNCHANGED_RECORDS
+UNION ALL
+SELECT
+	*
+FROM
+	UNNESTED_CHANGED_RECORDS
+UNION ALL
+SELECT
+	*
+FROM
+	NEW_RECORDS ) RESULTS
+	
