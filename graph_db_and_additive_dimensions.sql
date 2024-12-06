@@ -155,6 +155,7 @@ FROM
 
 
 -- Aggregate player data using a Common Table Expression (CTE)
+-- And Insert into the 'vertices' table
 INSERT INTO VERTICES
 WITH PLAYERS_AGG AS (
     SELECT
@@ -180,3 +181,67 @@ SELECT
     )
 FROM
     PLAYERS_AGG;    
+
+---- -- Insert unique team records into the 'vertices' table
+INSERT INTO VERTICES
+-- De-duplicateD teams using a Common Table Expression (CTE) 
+WITH TEAMS_DEDUPTED AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY
+                TEAM_ID                -- Partition by TEAM_ID to identify duplicates
+        ) AS ROW_NUM                   -- Assign row numbers to each partition
+    FROM
+        TEAMS                          -- Source table containing team data
+)
+SELECT
+    TEAM_ID AS IDENTIFIER,             -- Unique identifier for each team vertex
+    'team'::VERTEX_TYPE AS TYPE,       -- Cast 'team' as the vertex type
+    JSON_BUILD_OBJECT(                 -- Build a JSON object with team properties
+        'abbreviation', ABBREVIATION,
+        'nickname', NICKNAME,
+        'city', CITY,
+        'arena', ARENA,
+        'year_founded', YEARFOUNDED
+    ) AS PROPERTIES
+FROM
+    TEAMS_DEDUPTED                     -- Use the deduplicated teams CTE
+WHERE
+    ROW_NUM = 1;                       -- Select only the first occurrence of each team
+
+
+---------------------
+
+-- Use a Common Table Expression (CTE) to deduplicate records based on PLAYER_ID
+INSERT INTO EDGES
+WITH DEDUPED AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY
+                PLAYER_ID             -- Partition data by PLAYER_ID to group records per player
+        ) AS ROW_NUM                   -- Assign a sequential row number within each partition
+    FROM
+        GAME_DETAILS                   -- Source table containing game details
+)
+
+-- Select and format data to create edges from players to games
+SELECT
+    PLAYER_ID AS SUBJECT_IDENTIFIER,        -- Player's unique identifier (subject of the edge)
+    'player'::VERTEX_TYPE AS SUBJECT_TYPE,  -- Specify the vertex type as 'player' for the subject
+    GAME_ID AS OBJECT_IDENTIFIER,           -- Game's unique identifier (object of the edge)
+    'game'::VERTEX_TYPE AS OBJECT_TYPE,     -- Specify the vertex type as 'game' for the object
+    'plays_in'::EDGE_TYPE AS EDGE_TYPE,     -- Define the edge type as 'plays_in' to represent the relationship
+    JSON_BUILD_OBJECT(                      -- Build a JSON object to store edge properties
+        'start_position', START_POSITION,       -- Add player's starting position in the game
+        'pts', PTS,                             -- Add points scored by the player in the game
+        'team_id', TEAM_ID,                     -- Include the team ID the player was part of
+        'team_abbreviation', TEAM_ABBREVIATION  -- Include the team's abbreviation
+    ) AS PROPERTIES
+FROM
+    DEDUPED
+WHERE
+    ROW_NUM = 1                              -- Select only the first record per player to avoid duplicates
+
+
