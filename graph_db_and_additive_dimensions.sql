@@ -131,3 +131,51 @@ SELECT
     ) AS PROPERTIES
 FROM
     GAMES;  -- Source table containing game data
+
+
+
+INSERT INTO vertices
+SELECT
+	GAME_ID AS IDENTIFIER,
+	'game'::VERTEX_TYPE AS TYPE,
+	JSON_BUILD_OBJECT(
+		'pts_home',
+		PTS_HOME,
+		'pts_away',
+		PTS_AWAY,
+		'winning_team',
+		CASE
+			WHEN HOME_TEAM_WINS = 1 THEN HOME_TEAM_ID
+			ELSE VISITOR_TEAM_ID
+		END
+	) AS PROPERTIES
+FROM
+	GAMES;
+
+
+
+-- Aggregate player data using a Common Table Expression (CTE)
+WITH PLAYERS_AGG AS (
+    SELECT
+        PLAYER_ID AS IDENTIFIER,              -- Use PLAYER_ID as the unique identifier
+        MAX(PLAYER_NAME) AS PLAYER_NAME,      -- Get the player's name (assuming it's consistent)
+        COUNT(1) AS NUMBER_OF_GAMES,          -- Total number of games the player has participated in
+        SUM(PTS) AS TOTAL_POINTS,             -- Sum of points scored by the player
+        ARRAY_AGG(DISTINCT TEAM_ID) AS TEAMS  -- Array of distinct teams the player has played for
+    FROM
+        GAME_DETAILS
+    GROUP BY
+        PLAYER_ID                             -- Group by PLAYER_ID to aggregate data per player
+)
+-- Select and format the aggregated player data
+SELECT
+    IDENTIFIER,                               -- Player's unique identifier
+    'player'::VERTEX_TYPE,                    -- Cast 'player' as the vertex type
+    JSON_BUILD_OBJECT(                        -- Build a JSON object containing player properties
+        'player_name', PLAYER_NAME,
+        'number_of_games', NUMBER_OF_GAMES,
+        'total_points', TOTAL_POINTS,
+        'teams', TEAMS
+    )
+FROM
+    PLAYERS_AGG;    
