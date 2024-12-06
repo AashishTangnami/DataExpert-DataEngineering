@@ -245,3 +245,114 @@ WHERE
     ROW_NUM = 1                              -- Select only the first record per player to avoid duplicates
 
 
+---------------------
+SELECT
+	V.PROPERTIES ->> 'player_name',
+	MAX(cast(E.PROPERTIES ->> 'pts' as integer))
+FROM
+	VERTICES V
+	JOIN EDGES E ON E.SUBJECT_IDENTIFIER = V.IDENTIFIER
+	AND E.SUBJECT_TYPE = V.TYPE
+GROUP BY
+	1
+ORDER BY
+	2 DESC
+
+
+----
+
+----- SELF JOIN AND INSERT QUERY USING CTE WITH WINDOW FUNCTION----
+-- Insert edges between players based on their game interactions
+INSERT INTO EDGES
+-- First CTE: Deduplicate game details to ensure one record per player per game
+WITH DEDUPED AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY
+                PLAYER_ID,
+                GAME_ID
+        ) AS ROW_NUM                     -- Assign row numbers within player-game groups
+    FROM
+        GAME_DETAILS
+),
+-- Second CTE: Filter to keep only unique player-game combinations
+FILTERED AS (
+    SELECT
+        *
+    FROM
+        DEDUPED
+    WHERE
+        ROW_NUM = 1                      -- Keep only first occurrence
+),
+-- Third CTE: Aggregate player interactions and calculate statistics
+AGGREGATED AS (
+    SELECT
+        F1.PLAYER_ID AS SUBJECT_PLAYER_ID,   -- First player in the relationship
+        F2.PLAYER_ID AS OBJECT_PLAYER_ID,    -- Second player in the relationship
+        CASE
+            WHEN F1.TEAM_ABBREVIATION = F2.TEAM_ABBREVIATION 
+            THEN 'shares_team'::EDGE_TYPE     -- Players on same team
+            ELSE 'plays_against'::EDGE_TYPE   -- Players on opposing teams
+        END AS EDGE_TYPE,
+        MAX(F1.PLAYER_NAME) AS SUBJECT_PLAYER_NAME,    -- Name of first player
+        MAX(F2.PLAYER_NAME) AS OBJECT_PLAYER_NAME,     -- Name of second player
+        COUNT(1) AS NUM_GAMES,                         -- Number of games played together/against
+        SUM(F1.PTS) AS LEFT_POINTS,                   -- Points scored by first player
+        SUM(F2.PTS) AS RIGHT_POINTS                   -- Points scored by second player
+    FROM
+        FILTERED F1
+        JOIN FILTERED F2 ON F1.GAME_ID = F2.GAME_ID   -- Match players in same game
+        AND F1.PLAYER_NAME <> F2.PLAYER_NAME          -- Exclude self-matches
+    WHERE
+        F1.PLAYER_ID > F2.PLAYER_ID                   -- Prevent duplicate relationships
+    GROUP BY
+        F1.PLAYER_ID,
+        F2.PLAYER_ID,
+        CASE
+            WHEN F1.TEAM_ABBREVIATION = F2.TEAM_ABBREVIATION 
+            THEN 'shares_team'::EDGE_TYPE
+            ELSE 'plays_against'::EDGE_TYPE
+        END
+)
+-- Final SELECT: Format data for insertion into EDGES table
+SELECT
+    SUBJECT_PLAYER_ID AS SUBJECT_IDENTIFIER,          -- Source player ID
+    'player'::VERTEX_TYPE AS SUBJECT_TYPE,            -- Vertex type for source
+    OBJECT_PLAYER_ID AS OBJECT_IDENTIFIER,            -- Target player ID
+    'player'::VERTEX_TYPE AS OBJECT_TYPE,             -- Vertex type for target
+    EDGE_TYPE AS EDGE_TYPE,                           -- Relationship type
+    JSON_BUILD_OBJECT(                                -- Create JSON of edge properties
+        'num_games', NUM_GAMES,                       -- Number of games together
+        'subject_points', LEFT_POINTS,                -- Points by source player
+        'object_points', RIGHT_POINTS                 -- Points by target player
+    ) AS PROPERTIES
+FROM
+    AGGREGATED;
+
+
+SELECT
+    -- Player name from JSON properties
+    V.PROPERTIES ->> 'player_name',
+    
+    -- Connected player's identifier
+    E.OBJECT_IDENTIFIER,
+    
+    -- Calculate average points per game
+    CAST(V.PROPERTIES ->> 'number_of_games' AS REAL) /   -- Number of games played
+    CASE
+        WHEN CAST(V.PROPERTIES ->> 'total_points' AS REAL) = 0 THEN 1  -- Avoid division by zero
+        ELSE CAST(V.PROPERTIES ->> 'total_points' AS REAL)             -- Total career points
+    END,
+    
+    -- Points scored against this specific opponent
+    E.PROPERTIES ->> 'subject_points',
+    
+    -- Number of games played against this opponent
+    E.PROPERTIES ->> 'num_games'
+FROM
+    VERTICES V
+    JOIN EDGES E ON V.IDENTIFIER = E.SUBJECT_IDENTIFIER
+        AND V.TYPE = E.SUBJECT_TYPE
+WHERE
+    E.OBJECT_TYPE = 'player'::VERTEX_TYPE;
