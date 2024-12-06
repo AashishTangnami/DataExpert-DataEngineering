@@ -155,6 +155,7 @@ FROM
 
 
 -- Aggregate player data using a Common Table Expression (CTE)
+INSERT INTO VERTICES
 WITH PLAYERS_AGG AS (
     SELECT
         PLAYER_ID AS IDENTIFIER,              -- Use PLAYER_ID as the unique identifier
